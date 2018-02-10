@@ -1,14 +1,14 @@
 /*
  * Jupiter
- * 
- * A HTTP server for ESP8266 boards, responding to read request of 
- * temperature and humidity of an attached DHT22 sensor. 
- * 
+ *
+ * A HTTP server for ESP8266 boards, responding to read request of
+ * temperature and humidity of an attached DHT22 sensor.
+ *
  * (c) 2018 Roozbeh Farahbod
  * Distributed under the MIT License.
- * 
+ *
  */
- 
+
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
@@ -17,22 +17,22 @@
 #include <ArduinoJson.h>
 #include <DHT_U.h>
 
-#define MAX_CONFIG_SIZE 2 * 1024
+#define MAX_CONFIG_SIZE (2 * 1024)
+#define WIFI_STATION_TIME_TO_LIVE 30 // seconds
+#define WIFI_AP_TIME_TO_LIVE (5 * 60 * 1000) // milliseconds
+#define MILLISECONDS_IN_A_DAY (24 * 3600 * 1000)
 #define CONFIG_FILE "/config.json"
 
 // --- Change these settings as needed
-#define DHTTYPE DHT22   
+#define DHTTYPE DHT22
 #define DHTPIN 14       // what digital pin the DHT22 is conected to
 const char* deviceName = "dht22-04";
-const char* board_wifi_ssid = "DHTBoard";
-const char* board_wifi_password = "LetMeIn";
-const char* def_ssid = "SSID";
-const char* def_password = "Password";
-char ssid[64];
-char password[64];
+const char* def_ssid = "ESPConfigurator";
+const char* def_password = "";
 // ---
 
-const unsigned long millisecondsInADay = 24 * 3600 * 1000;
+char ssid[64];
+char password[128];
 
 ESP8266WebServer server(80);
 
@@ -67,17 +67,12 @@ void setup(void){
     saveConfig();
   }
 
-  // try connecting to WiFi for 30 seconds
-  if (!connectToWifi(30)) {
-   
-    // if couldn't connect, use default config and try again
-    WiFi.disconnect();
+  // Try connecting with the loaded configuration
+  if (!setupWiFi(WIFI_STATION_TIME_TO_LIVE)) {
+    // if failed, fall back to default and try again.
     setDefaultConfig();
-    saveConfig();
-
-    // Then try to connect as long as needed
-    connectToWifi(0);
-  }
+    setupWiFi(0);
+  } 
   
   Serial.println("");
   Serial.print("Connected to ");
@@ -85,9 +80,6 @@ void setup(void){
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
 
-  if (MDNS.begin(deviceName)) {
-    Serial.println("MDNS responder started.");
-  }
 
   server.on("/", handleRoot);
 
@@ -103,25 +95,27 @@ void loop(void){
   server.handleClient();
 }
 
-// --- WiFi operations
-bool connectToWifi(int maxTry) {
-  Serial.println((String)"\nConnecting to WiFi with (" + ssid + ", " + password + ")\n");
-
-  WiFi.disconnect();
-  delay(1000);
+bool setupWiFi(int timeout) {
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
 
-  // Wait for connection
+  if (strlen(password) == 0) {
+    Serial.println((String)"\nConnecting to WiFi with SSID " + ssid + "...\n");
+    WiFi.begin(ssid);
+  } else {
+    Serial.println((String)"\nConnecting to WiFi with SSDI " + ssid + " and password " + password + "...\n");
+    WiFi.begin(ssid, password);
+  }
+ 
   int i = 0;
-  while (WiFi.status() != WL_CONNECTED && (maxTry == 0 || i < maxTry)) {
+  while (WiFi.status() != WL_CONNECTED && (timeout == 0 || i < timeout)) {
     delay(1000);
-    Serial.print(++i);
-    Serial.print(' ');
+    i++;
+    Serial.print('.');
   }
 
   return WiFi.status() == WL_CONNECTED;
 }
+
 
 // --- HTTP Endpoint Handlers
 void handleRoot() {
@@ -146,18 +140,14 @@ void handleRoot() {
     lastResponse->timeStamp = millis();
   }
 
-  const size_t BUFFER_SIZE =
-    JSON_OBJECT_SIZE(4)     // the root object has 2 elements
-    + JSON_OBJECT_SIZE(3);   // the "dht22" object has 4 elements
-
   StaticJsonBuffer<500> jsonBuffer;
   JsonObject& root = jsonBuffer.createObject();
 
   root["device"] = deviceName;
   root["stale"] = stale;
   long readingTime = millis() - lastResponse->timeStamp;
-  if (readingTime < 0 || readingTime > millisecondsInADay) {
-    readingTime = millisecondsInADay;
+  if (readingTime < 0 || readingTime > MILLISECONDS_IN_A_DAY) {
+    readingTime = MILLISECONDS_IN_A_DAY;
   }
   root["readingTime"] = readingTime;
 
@@ -187,13 +177,13 @@ void handleConfig() {
 
   Serial.println(ssid);
   Serial.println(password);
-  
+
   saveConfig();
 
   server.send(200, "application/json", "{}");
 
   Serial.println("Restarting...");
-  
+
   delay(5000);
 
   ESP.restart();
@@ -205,14 +195,16 @@ void handleNotFound(){
 
 // --- Configuration File
 
-// setDefaultConfig sets the default configuration 
+// setDefaultConfig sets the default configuration
 void setDefaultConfig() {
   strcpy(ssid, def_ssid);
-  strcpy(password, def_password);  
+  strcpy(password, def_password);
 }
 
 // loadConfig loads the stored configuration from the config file
 bool loadConfig(void) {
+  Serial.println("Loading configuration file...");
+
   File configFile = SPIFFS.open(CONFIG_FILE, "r");
   if (!configFile) {
     error("Cannot open config file.");
@@ -228,7 +220,7 @@ bool loadConfig(void) {
   std::unique_ptr<char[]> buf(new char[size]);
   configFile.readBytes(buf.get(), size);
 
-  StaticJsonBuffer<128> jsonBuffer;
+  StaticJsonBuffer<256> jsonBuffer;
   JsonObject& json = jsonBuffer.parseObject(buf.get());
 
   if (!json.success()) {
@@ -236,25 +228,26 @@ bool loadConfig(void) {
     return false;
   }
 
-  strcpy(ssid, json["ssid"]);
-  strcpy(password, json["password"]);
+  const char* readSSID = json["ssid"];
+  const char* readPass = json["password"];
+
+  strcpy(ssid, readSSID);
+  strcpy(password, readPass);
 
   Serial.println(ssid);
   Serial.println(password);
-  
+
   configFile.close();
   Serial.println("Config loaded successfully.");
- 
+
   return true;
 }
 
-// saveConfig saves the current WiFi configuration 
+// saveConfig saves the current WiFi configuration
 bool saveConfig() {
-  const size_t BUFFER_SIZE = JSON_OBJECT_SIZE(2);
-
-  StaticJsonBuffer<BUFFER_SIZE> jsonBuffer;
+  StaticJsonBuffer<256> jsonBuffer;
   JsonObject& json = jsonBuffer.createObject();
-  
+
   json["ssid"] = ssid;
   json["password"] = password;
 
@@ -283,5 +276,4 @@ void error(char* msg) {
 void serverSendError(int code, char* msg) {
     server.send(code, "application/json", (String)"{\"error\": \"" + msg + "\"}");
 }
-
 
