@@ -1,0 +1,87 @@
+swagger: "2.0"
+info:
+  title: esp-dht22
+  version: 1.0.0
+consumes:
+- application/json
+produces:
+- application/json
+schemes:
+- http
+paths:
+  /:
+    get:
+      description: Returns the latest data from the DHT sensor
+      responses:
+        200:
+          description: Success
+          schema:
+            $ref: '#/definitions/SensorData'
+        default:
+          description: Error
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+  /config:
+    parameters:
+      - name: ssid
+        type: string
+        in: query
+        required: true
+      - name: password
+        type: string
+        in: query
+        required: false
+    get:
+      # For ease of use, we use the GET method for this operation
+      description: Sets the SSID and password of a network
+      responses:
+        200:
+          description: Success
+          schema:
+            $ref: "#/definitions/ConfigResponse"
+        default:
+          description: Error
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+definitions:
+  SensorData:
+    type: object
+    required:
+      - device
+      - stale
+      - deltaTime
+      - dht
+    properties:
+      device:
+        type: string
+      stale:
+        type: boolean
+      deltaTime:
+        type: integer
+      dht:
+        type: object
+        required:
+          - temperature
+          - humidity
+          - heatIndex
+        properties:
+          temperature:
+            type: number
+          humidity:
+            type: number
+          heatIndex:
+            type: number
+  ConfigResponse:
+    type: object
+    required:
+      - ssid
+    properties:
+      ssid:
+        type: string
+  ErrorResponse:
+    type: object
+    required:
+      - error
+    properties:
+      error:
+        type: string

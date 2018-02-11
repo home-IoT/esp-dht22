@@ -72,8 +72,8 @@ void setup(void){
     // if failed, fall back to default and try again.
     setDefaultConfig();
     setupWiFi(0);
-  } 
-  
+  }
+
   Serial.println("");
   Serial.print("Connected to ");
   Serial.println(ssid);
@@ -105,7 +105,7 @@ bool setupWiFi(int timeout) {
     Serial.println((String)"\nConnecting to WiFi with SSDI " + ssid + " and password " + password + "...\n");
     WiFi.begin(ssid, password);
   }
- 
+
   int i = 0;
   while (WiFi.status() != WL_CONNECTED && (timeout == 0 || i < timeout)) {
     delay(1000);
@@ -145,11 +145,11 @@ void handleRoot() {
 
   root["device"] = deviceName;
   root["stale"] = stale;
-  long readingTime = millis() - lastResponse->timeStamp;
-  if (readingTime < 0 || readingTime > MILLISECONDS_IN_A_DAY) {
-    readingTime = MILLISECONDS_IN_A_DAY;
+  long deltaTime = millis() - lastResponse->timeStamp;
+  if (deltaTime < 0 || deltaTime > MILLISECONDS_IN_A_DAY) {
+    deltaTime = MILLISECONDS_IN_A_DAY;
   }
-  root["readingTime"] = readingTime;
+  root["deltaTime"] = deltaTime;
 
   JsonObject& dht22 = root.createNestedObject("dht22");
   dht22["temperature"] = lastResponse->temp;
@@ -180,7 +180,15 @@ void handleConfig() {
 
   saveConfig();
 
-  server.send(200, "application/json", "{}");
+  StaticJsonBuffer<128> jsonBuffer;
+  JsonObject& json = jsonBuffer.createObject();
+
+  json["ssid"] = ssid;
+
+  String response;
+  json.printTo(response);
+
+  server.send(200, "application/json", response);
 
   Serial.println("Restarting...");
 
@@ -276,4 +284,3 @@ void error(char* msg) {
 void serverSendError(int code, char* msg) {
     server.send(code, "application/json", (String)"{\"error\": \"" + msg + "\"}");
 }
-
