@@ -1,3 +1,8 @@
+# ESP-DHT22 Service API
+#
+# Copyright (c) 2018 Roozbeh Farahbod
+# Distributed under the MIT License.
+
 swagger: "2.0"
 info:
   title: esp-dht22

@@ -4,7 +4,7 @@
  * A HTTP server for ESP8266 boards, responding to read request of
  * temperature and humidity of an attached DHT22 sensor.
  *
- * (c) 2018 Roozbeh Farahbod
+ * Copyright (c) 2018 Roozbeh Farahbod
  * Distributed under the MIT License.
  *
  */
